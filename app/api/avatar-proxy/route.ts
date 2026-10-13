@@ -24,8 +24,17 @@ export async function GET(request: Request) {
       return new NextResponse(null, { status: res.status });
     }
 
+    if (res.url && res.url.includes("84628273_176159830277856")) {
+      return new NextResponse(null, { status: 404 });
+    }
+
     const contentType = res.headers.get("content-type") || "image/jpeg";
     const arrayBuffer = await res.arrayBuffer();
+
+    // Placeholder silhouette Facebook Meta default berukuran <= 2500 bytes
+    if (arrayBuffer.byteLength <= 2500) {
+      return new NextResponse(null, { status: 404 });
+    }
 
     return new NextResponse(arrayBuffer, {
       headers: {
