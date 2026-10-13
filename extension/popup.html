@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>ReachOwl Social Bridge</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #F3F0E8;
+      color: #1B1A17;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(27, 26, 23, 0.15);
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand svg {
+      width: 28px;
+      height: 18px;
+    }
+    .brand span {
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .status-badge {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-family: monospace;
+      padding: 2px 6px;
+      background: #E2683C;
+      color: #FFF;
+      border-radius: 2px;
+    }
+    .accounts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .account-card {
+      background: #FFF;
+      border: 1px solid rgba(27, 26, 23, 0.12);
+      border-radius: 4px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .account-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .account-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #1B1A17;
+      color: #F3F0E8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .account-icon.ig {
+      background: #E1306C;
+    }
+    .account-icon.fb {
+      background: #1877F2;
+    }
+    .account-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .account-status {
+      font-size: 11px;
+      color: rgba(27, 26, 23, 0.6);
+    }
+    .state-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .state-indicator.online {
+      color: #059669;
+    }
+    .state-indicator.offline {
+      color: #DC2626;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .state-indicator.online .dot {
+      background: #059669;
+    }
+    .state-indicator.offline .dot {
+      background: #DC2626;
+    }
+    .btn-sync {
+      width: 100%;
+      background: #1B1A17;
+      color: #F3F0E8;
+      border: none;
+      padding: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background 0.15s;
+    }
+    .btn-sync:hover {
+      background: #2E2C27;
+    }
+    .footer-note {
+      font-size: 10px;
+      color: rgba(27, 26, 23, 0.5);
+      text-align: center;
+      margin-top: 10px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <svg viewBox="0 0 40 24">
+        <circle cx="11" cy="12" r="10" fill="none" stroke="#1B1A17" stroke-width="1.5" />
+        <circle cx="29" cy="12" r="10" fill="none" stroke="#1B1A17" stroke-width="1.5" />
+        <circle cx="13" cy="12" r="3.5" fill="#1B1A17" />
+        <circle cx="31" cy="12" r="3.5" fill="#1B1A17" />
+      </svg>
+      <span>ReachOwl</span>
+    </div>
+    <span class="status-badge">Bridge v1.0</span>
+  </div>
+
+  <div class="accounts-list">
+    <!-- Facebook -->
+    <div class="account-card">
+      <div class="account-info">
+        <div class="account-icon fb">f</div>
+        <div>
+          <div class="account-name">Facebook</div>
+          <div class="account-status" id="fb-status-text">Memeriksa...</div>
+        </div>
+      </div>
+      <div class="state-indicator" id="fb-state">
+        <span class="dot"></span>
+        <span id="fb-state-label">...</span>
+      </div>
+    </div>
+
+    <!-- Instagram -->
+    <div class="account-card">
+      <div class="account-info">
+        <div class="account-icon ig">ig</div>
+        <div>
+          <div class="account-name">Instagram</div>
+          <div class="account-status" id="ig-status-text">Memeriksa...</div>
+        </div>
+      </div>
+      <div class="state-indicator" id="ig-state">
+        <span class="dot"></span>
+        <span id="ig-state-label">...</span>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn-sync" id="btn-sync">Periksa & Sinkronkan ke ReachOwl</button>
+  <p class="footer-note">Deteksi otomatis via session cookies</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
