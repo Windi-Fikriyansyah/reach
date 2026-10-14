@@ -1,97 +1,108 @@
 /**
- * ReachOwl — Facebook scan helper (MAIN world, document_start)
+ * ReachOwl — Facebook Background Scan Helper (MAIN world, document_start)
  *
- * Only active in the background tab the extension opens for scanning
- * (the URL carries `reachowl_scan=1`). Chrome does not run the rendering
- * pipeline for inactive tabs, so IntersectionObserver / requestAnimationFrame /
- * scroll events never fire and Facebook's infinite scroll stops after the
- * first batch (~25 groups). This shim makes the page believe it is visible
- * and that observed elements (incl. the pagination sentinel) are on screen,
- * so Facebook keeps loading pages until the list is exhausted.
+ * Diaktifkan khusus pada halaman grup Facebook (/groups/joins).
+ * Menjaga siklus rendering & paginasi Facebook tetap aktif saat tab berjalan
+ * di latar belakang (active: false), sehingga Relay infinite scroll tetap memuat
+ * seluruh grup sampai tuntas tanpa perlu berpindah tab atau mencuri fokus pengguna.
  */
 (() => {
-  if (!/[?&]reachowl_scan=1(?:&|$)/.test(location.search)) return;
-
-  // 1. Halaman dianggap selalu terlihat & fokus
+  // 1. Visibilitas tab selalu dilaporkan aktif & fokus
   try {
     Object.defineProperty(Document.prototype, 'visibilityState', { configurable: true, get: () => 'visible' });
     Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => false });
     Document.prototype.hasFocus = () => true;
   } catch (e) {}
 
-  // 2. requestAnimationFrame tetap berjalan di tab tidak aktif
-  window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-  window.cancelAnimationFrame = (id) => clearTimeout(id);
+  // 2. requestAnimationFrame tetap berdetak normal di tab latar belakang
+  try {
+    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+    window.cancelAnimationFrame = (id) => clearTimeout(id);
+  } catch (e) {}
 
-  // 3. IntersectionObserver palsu: elemen yang diamati selalu dilaporkan
-  //    sedang berpotongan (isIntersecting = true) sehingga sentinel paginasi
-  //    Facebook memicu muat halaman berikutnya sampai semua grup habis.
-  class ReachOwlIntersectionObserver {
-    constructor(callback, options) {
-      this._cb = callback;
-      this._targets = new Set();
-      this._timer = null;
-      this.root = (options && options.root) || null;
-      this.rootMargin = (options && options.rootMargin) || '0px';
-      const th = options && options.threshold !== undefined ? options.threshold : 0;
-      this.thresholds = Array.isArray(th) ? th : [th];
-    }
+  // 3. Wrapper IntersectionObserver: menjaga instance asli native,
+  //    sekaligus memicu callback perpotongan sentinel paginasi secara periodik
+  //    meski browser engine Chromium menunda layout pass di tab non-aktif.
+  const NativeIO = window.IntersectionObserver;
+  if (!NativeIO) return;
 
-    _entries(visible) {
-      const now = performance.now();
-      const list = [];
-      this._targets.forEach((t) => {
-        if (!t || !t.isConnected) return;
-        const r = t.getBoundingClientRect();
-        list.push({
-          target: t,
-          time: now,
-          isIntersecting: visible,
-          intersectionRatio: visible ? 1 : 0,
-          boundingClientRect: r,
-          intersectionRect: r,
-          rootBounds: null,
-        });
-      });
-      return list;
-    }
+  const activeInstances = new Set();
 
-    _emit(visible) {
-      const entries = this._entries(visible);
-      if (!entries.length) return;
-      try {
-        this._cb(entries, this);
-      } catch (e) {}
-    }
+  function ReachOwlIntersectionObserver(callback, options) {
+    const inst = new NativeIO(callback, options);
+    inst.__userCallback = callback;
+    inst.__targets = new Set();
 
-    _cycle() {
-      this._emit(false);
-      setTimeout(() => this._emit(true), 30);
-    }
+    const origObserve = inst.observe.bind(inst);
+    inst.observe = (target) => {
+      if (target) inst.__targets.add(target);
+      return origObserve(target);
+    };
 
-    observe(target) {
-      if (!target) return;
-      this._targets.add(target);
-      // Langsung picu intersecting agar paginasi langsung terpanggil
-      setTimeout(() => this._emit(true), 20);
-      if (!this._timer) this._timer = setInterval(() => this._cycle(), 600);
-    }
+    const origUnobserve = inst.unobserve.bind(inst);
+    inst.unobserve = (target) => {
+      if (target) inst.__targets.delete(target);
+      return origUnobserve(target);
+    };
 
-    unobserve(target) {
-      this._targets.delete(target);
-    }
+    const origDisconnect = inst.disconnect.bind(inst);
+    inst.disconnect = () => {
+      inst.__targets.clear();
+      activeInstances.delete(inst);
+      return origDisconnect();
+    };
 
-    disconnect() {
-      this._targets.clear();
-      if (this._timer) clearInterval(this._timer);
-      this._timer = null;
-    }
-
-    takeRecords() {
-      return [];
-    }
+    activeInstances.add(inst);
+    return inst;
   }
 
-  ReachOwlIntersectionObserver.prototype.THROTTLE_TIMEOUT = 100;
+  ReachOwlIntersectionObserver.prototype = NativeIO.prototype;
   window.IntersectionObserver = ReachOwlIntersectionObserver;
+
+  // Siklus pemicu sentinel Relay di latar belakang
+  setInterval(() => {
+    const w = window.innerWidth || 1920;
+    const h = window.innerHeight || 1080;
+    const rootRect = { x: 0, y: 0, top: 0, left: 0, right: w, bottom: h, width: w, height: h };
+    const now = performance.now();
+
+    for (const inst of activeInstances) {
+      if (!inst.__targets || !inst.__targets.size) continue;
+      const entries = [];
+      for (const target of inst.__targets) {
+        if (!target || !target.isConnected) {
+          inst.__targets.delete(target);
+          continue;
+        }
+        const r = target.getBoundingClientRect();
+        entries.push({
+          target,
+          time: now,
+          isIntersecting: true,
+          intersectionRatio: 1,
+          boundingClientRect: r,
+          intersectionRect: r,
+          rootBounds: rootRect,
+        });
+      }
+
+      if (entries.length > 0 && typeof inst.__userCallback === 'function') {
+        try {
+          inst.__userCallback(entries, inst);
+        } catch (err) {}
+      }
+    }
+  }, 600);
+
+  // 4. Pengguliran berkelanjutan di MAIN world langsung ke elemen scrollable
+  setInterval(() => {
+    try {
+      document.querySelectorAll('div, main, section, nav, [role="navigation"]').forEach((el) => {
+        if (el.scrollHeight > el.clientHeight + 15) {
+          el.scrollTop = el.scrollHeight;
+          el.dispatchEvent(new Event('scroll', { bubbles: false }));
+        }
+      });
+    } catch (e) {}
+  }, 500);
 })();

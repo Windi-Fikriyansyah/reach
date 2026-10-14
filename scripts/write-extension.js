@@ -30,7 +30,6 @@ const manifestJson = {
       run_at: 'document_idle',
     },
     {
-      // Hanya aktif di tab pemindaian (URL berisi reachowl_scan=1)
       matches: ['https://*.facebook.com/groups/joins*'],
       js: ['fb-scan-main.js'],
       run_at: 'document_start',

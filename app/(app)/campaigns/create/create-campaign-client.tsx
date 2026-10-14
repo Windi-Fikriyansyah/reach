@@ -141,6 +141,7 @@ export default function CreateCampaignClient() {
   const [facebookGroups, setFacebookGroups] = useState<
     Array<{ id: string; name: string; url: string; image?: string | null; privacy?: string }>
   >([]);
+  const [isLoadingDatabaseGroups, setIsLoadingDatabaseGroups] = useState(true);
   const [isScrapingGroups, setIsScrapingGroups] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeSuccessMessage, setScrapeSuccessMessage] = useState<string | null>(null);
@@ -148,21 +149,33 @@ export default function CreateCampaignClient() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState<{ count: number; expected: number } | null>(null);
   const scrapeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasAutoScannedRef = useRef(false);
 
-  // Muat grup yang pernah di-scrape sebelumnya & pasang listener ekstensi
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("reachowl_scraped_fb_groups");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setFacebookGroups(parsed);
+  // Ambil daftar grup dari database Supabase sebagai Single Source of Truth
+  const refreshGroupsFromDatabase = useCallback(() => {
+    setIsLoadingDatabaseGroups(true);
+    fetch("/api/facebook-groups", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && Array.isArray(data.groups)) {
+          setFacebookGroups(data.groups);
+          if (data.groups.length === 0 && typeof window !== "undefined") {
+            // Bersihkan cache lokal jika data di database kosong
+            localStorage.removeItem("reachowl_scraped_fb_groups");
           }
-        } catch {}
-      }
-    }
+        } else {
+          setFacebookGroups([]);
+        }
+      })
+      .catch(() => {
+        setFacebookGroups([]);
+      })
+      .finally(() => {
+        setIsLoadingDatabaseGroups(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshGroupsFromDatabase();
 
     // Handshake Ping ke ekstensi
     window.postMessage({ type: "REACHOWL_PING" }, "*");
@@ -199,14 +212,32 @@ export default function CreateCampaignClient() {
         setIsScrapingGroups(false);
         setScanProgress(null);
         if (event.data.success && Array.isArray(event.data.groups) && event.data.groups.length > 0) {
-          setFacebookGroups(event.data.groups);
+          const scraped = event.data.groups;
+          setFacebookGroups(scraped);
           setScrapeSuccessMessage(
-            `Berhasil memindai ${event.data.groups.length} grup Facebook yang Anda ikuti (semua grup selesai diambil).`
+            `Berhasil memindai ${scraped.length} grup Facebook. Menyimpan ke database...`
           );
           setScrapeError(null);
-          try {
-            localStorage.setItem("reachowl_scraped_fb_groups", JSON.stringify(event.data.groups));
-          } catch {}
+
+          // Otomatis simpan ke database Supabase
+          fetch("/api/facebook-groups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ groups: scraped }),
+          })
+            .then((res) => res.json())
+            .then((resData) => {
+              if (resData && resData.success) {
+                setScrapeSuccessMessage(
+                  `Berhasil memindai ${scraped.length} grup Facebook dan otomatis tersimpan ke database.`
+                );
+                // Sinkronkan ulang dari database
+                refreshGroupsFromDatabase();
+              }
+            })
+            .catch((err) => {
+              console.warn("Gagal menyimpan grup ke database:", err);
+            });
         } else {
           setScrapeError(
             event.data.error || "Tidak ada grup yang ditemukan pada akun Facebook ini."
@@ -243,18 +274,12 @@ export default function CreateCampaignClient() {
     }, 180000);
   }, []);
 
-  // Ambil daftar grup secara otomatis saat masuk ke Step 2 (Facebook Group Members)
+  // Sinkronkan daftar grup dari database saat masuk ke Step 2 (Facebook Group Members)
   useEffect(() => {
-    if (
-      currentStep === 2 &&
-      selectedMethod === "fb_group_members" &&
-      extensionReady &&
-      !hasAutoScannedRef.current
-    ) {
-      hasAutoScannedRef.current = true;
-      handleReloadFreshList();
+    if (currentStep === 2 && selectedMethod === "fb_group_members") {
+      refreshGroupsFromDatabase();
     }
-  }, [currentStep, selectedMethod, extensionReady, handleReloadFreshList]);
+  }, [currentStep, selectedMethod, refreshGroupsFromDatabase]);
 
   // Auto update method default when platform changes
   const handlePlatformChange = (newPlatform: Platform) => {
@@ -675,14 +700,21 @@ export default function CreateCampaignClient() {
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-ink flex items-center justify-between">
                     <span>Select from the list</span>
-                    {facebookGroups.length > 0 && (
+                    {!isLoadingDatabaseGroups && facebookGroups.length > 0 && (
                       <span className="font-mono text-[11px] text-ink/50 font-normal">
-                        ({facebookGroups.length} grup tersedia)
+                        ({facebookGroups.length} grup di database)
                       </span>
                     )}
                   </label>
 
-                  {facebookGroups.length > 0 ? (
+                  {isLoadingDatabaseGroups ? (
+                    <div className="rounded-[4px] border border-ink/10 bg-white/70 p-6 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <RotateCcw className="h-4 w-4 animate-spin text-accent" />
+                        <p className="text-xs text-ink/60 font-medium">Memeriksa data grup di database...</p>
+                      </div>
+                    </div>
+                  ) : facebookGroups.length > 0 ? (
                     <div className="space-y-3">
                       {/* Search bar */}
                       <div className="relative">
@@ -758,7 +790,7 @@ export default function CreateCampaignClient() {
                       </div>
                     </div>
                   ) : (
-                    /* Belum ada hasil scrape */
+                    /* Database kosong */
                     <div className="rounded-[4px] border border-dashed border-ink/20 bg-white/60 p-6 text-center">
                       {isScrapingGroups ? (
                         <div className="flex flex-col items-center gap-2">
@@ -771,12 +803,12 @@ export default function CreateCampaignClient() {
                               : "Mengambil seluruh daftar grup dari akun Facebook Anda…"}
                           </p>
                           <p className="text-[11px] text-ink/50 max-w-md mx-auto">
-                            Ekstensi sedang menggulir halaman Facebook hingga semua grup selesai diambil tanpa ada yang terlewat.
+                            Ekstensi sedang memindai Facebook dan akan otomatis menyimpannya ke database.
                           </p>
                         </div>
                       ) : (
                         <p className="text-xs text-ink/55">
-                          Belum ada grup. Klik <b>&ldquo;Reload fresh list from facebook&rdquo;</b> untuk memuat semua grup.
+                          Database grup masih kosong (0 grup). Klik <b>&ldquo;Reload fresh list from facebook&rdquo;</b> di atas untuk memindai akun Facebook Anda.
                         </p>
                       )}
                     </div>

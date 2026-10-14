@@ -3,7 +3,7 @@
  * Menjembatani aplikasi web ReachOwl dengan background extension secara on-demand.
  */
 
-const BRIDGE_VERSION = '2.2.0';
+const BRIDGE_VERSION = '2.3.0';
 
 function announceReady() {
   window.postMessage(

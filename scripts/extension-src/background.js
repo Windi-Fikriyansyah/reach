@@ -332,16 +332,43 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
   const collect = () => {
     // A. DOM yang sudah dirender
     document.querySelectorAll('a[href*="/groups/"]').forEach((a) => {
-      const m = (a.href || '').match(/facebook\.com\/groups\/([^/?#]+)\/?(?:[?#].*)?$/);
+      const href = a.href || '';
+      const m = href.match(/facebook\.com\/groups\/([^/?#]+)/i);
       if (!m) return;
       let id = m[1];
       try { id = decodeURIComponent(id); } catch (e) {}
-      const text = (a.innerText || a.textContent || a.getAttribute('aria-label') || '')
+      if (!id || IGNORED.has(id.toLowerCase())) return;
+
+      let lines = (a.innerText || a.textContent || a.getAttribute('aria-label') || '')
         .split('\n')
         .map((s) => s.trim())
-        .filter(Boolean)[0] || '';
-      const img = a.querySelector('img, image');
-      const src = img ? img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href') : null;
+        .filter((s) => s && !BAD_TEXT.test(s));
+      let text = lines[0] || '';
+
+      let img = a.querySelector('img, image');
+      let src = img ? img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href') : null;
+
+      // Jika link tidak memiliki nama atau gambar, cari di card parent
+      if (!text || !src) {
+        const card = a.closest('div[role="listitem"], div[role="article"], div[data-visualcompletion], div[role="gridcell"]');
+        if (card) {
+          if (!text) {
+            const h = card.querySelector('h2, h3, span[dir="auto"], strong');
+            if (h) {
+              const hLines = (h.innerText || h.textContent || '')
+                .split('\n')
+                .map((s) => s.trim())
+                .filter((s) => s && !BAD_TEXT.test(s));
+              text = hLines[0] || '';
+            }
+          }
+          if (!src) {
+            const cardImg = card.querySelector('img[src*="scontent"], image');
+            if (cardImg) src = cardImg.getAttribute('src') || cardImg.getAttribute('xlink:href') || null;
+          }
+        }
+      }
+
       upsert(id, text, src);
     });
 
@@ -357,10 +384,13 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
       }
     } catch (e) {}
 
-    return Array.from(found.values()).filter((g) => g.name);
+    // Kembalikan semua grup unik berdasarkan ID grup Facebook asli.
+    // JANGAN deduplikasi berdasarkan nama, karena pengguna sering kali bergabung ke beberapa
+    // grup berbeda yang memiliki nama sama/serupa (misal grup jual beli/komunitas daerah).
+    return Array.from(found.values()).filter((g) => g && g.id && g.name && !BAD_TEXT.test(g.name));
   };
 
-  // Jumlah total dari judul Facebook
+  // Jumlah total dari judul / teks Facebook
   const readExpectedTotal = () => {
     try {
       const txt = document.body ? document.body.innerText : '';
@@ -368,6 +398,7 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
         /(?:groups you've joined|grup yang (?:telah )?anda (?:ikuti|gabung)i?|semua grup|all groups|grup anda)[^\n(]*\((\d[\d.,]*)\)/i,
         /\((\d[\d.,]*)\)\s*(?:grup|groups)/i,
         /(\d[\d.,]*)\s*(?:grup yang anda ikuti|groups you've joined)/i,
+        /all groups you've joined[^\d]*(\d[\d.,]*)/i,
       ];
       for (const p of patterns) {
         const m = txt.match(p);
@@ -382,7 +413,7 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
 
   const scrollToEnd = () => {
     try {
-      // 1. Gulir window & document
+      // 1. Gulir window
       const h = Math.max(
         document.documentElement ? document.documentElement.scrollHeight : 0,
         document.body ? document.body.scrollHeight : 0,
@@ -392,29 +423,53 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
       if (document.documentElement) document.documentElement.scrollTop = h;
       if (document.body) document.body.scrollTop = h;
 
-      // 2. Gulir semua container bertingkat yang memiliki scrollbar
-      document.querySelectorAll('*').forEach((el) => {
-        if (el.scrollHeight > el.clientHeight + 30) {
+      // 2. Gulir semua container scrollable (sidebar, rail, list) dan dispatch event langsung
+      document.querySelectorAll('div, main, section, nav, [role="navigation"], [role="main"]').forEach((el) => {
+        if (el.scrollHeight > el.clientHeight + 15) {
           el.scrollTop = el.scrollHeight;
+          // Event scroll TIDAK bubble dalam spesifikasi DOM!
+          // Wajib di-dispatch langsung pada elemen target agar React onScroll terpanggil:
+          el.dispatchEvent(new Event('scroll', { bubbles: false }));
+          el.dispatchEvent(new UIEvent('scroll'));
+          el.dispatchEvent(new WheelEvent('wheel', { deltaY: 2500, bubbles: true, cancelable: true }));
         }
       });
 
-      // 3. PENTING: Gulir link grup terakhir langsung ke viewport bawah (memaksa sentinel paginasi aktif)
+      // 3. Scroll link grup terakhir langsung ke viewport bawah (memaksa sentinel Relay aktif)
       const allGroupLinks = document.querySelectorAll('a[href*="/groups/"]');
       if (allGroupLinks.length > 0) {
-        allGroupLinks[allGroupLinks.length - 1].scrollIntoView({ behavior: 'instant', block: 'end' });
+        const lastLink = allGroupLinks[allGroupLinks.length - 1];
+        lastLink.scrollIntoView({ behavior: 'instant', block: 'end' });
+
+        let curr = lastLink.parentElement;
+        while (curr && curr !== document.body) {
+          if (curr.scrollHeight > curr.clientHeight) {
+            curr.scrollTop = curr.scrollHeight;
+            curr.dispatchEvent(new Event('scroll', { bubbles: false }));
+            curr.dispatchEvent(new WheelEvent('wheel', { deltaY: 2500, bubbles: true }));
+          }
+          curr = curr.parentElement;
+        }
       }
 
-      // 4. Trigger event scroll & wheel
-      window.dispatchEvent(new Event('scroll', { bubbles: true }));
-      document.dispatchEvent(new Event('scroll', { bubbles: true }));
-      window.dispatchEvent(new WheelEvent('wheel', { deltaY: 1000, bubbles: true }));
+      // 4. Klik tombol "Lihat selengkapnya" / "See more" jika ada
+      document.querySelectorAll('div[role="button"], span, a').forEach((btn) => {
+        const txt = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+        if (/^(lihat selengkapnya|lihat lainnya|see more|muat lainnya|load more)$/i.test(txt)) {
+          try { btn.click(); } catch (e) {}
+        }
+      });
     } catch (e) {}
   };
 
-  const report = (count, expected) => {
+  const report = (groupsList, expected) => {
     try {
-      chrome.runtime.sendMessage({ action: 'scan_progress', count, expected });
+      chrome.runtime.sendMessage({
+        action: 'scan_progress',
+        count: groupsList.length,
+        expected,
+        groups: groupsList,
+      });
     } catch (e) {}
   };
 
@@ -436,18 +491,24 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
       if (groups.length > lastCount) {
         lastCount = groups.length;
         lastGrowthAt = Date.now();
-        report(groups.length, expected);
+        report(groups, expected);
       }
 
       const reachedTotal = expected > 0 && groups.length >= expected;
-      const idle = groups.length > 0 && Date.now() - lastGrowthAt > idleStopMs;
+      // Jika kita tahu totalnya (misal 169) dan saat ini belum tercapai:
+      // Berikan toleransi hingga 30 detik per batch jaringan agar dapat memuat semua 169 grup sampai tuntas
+      const currentIdleLimit = (expected > 0 && groups.length < expected) ? 30000 : 12000;
+      const idle = groups.length > 0 && (Date.now() - lastGrowthAt > currentIdleLimit);
       const timedOut = Date.now() - start > maxWaitMs;
 
       if (reachedTotal || idle || timedOut) {
+        try {
+          chrome.runtime.sendMessage({ action: 'scan_complete', groups, expected });
+        } catch (e) {}
         resolve({ loginRequired: false, groups, expected });
         return;
       }
-      setTimeout(tick, 1000);
+      setTimeout(tick, 500);
     };
 
     tick();
@@ -475,10 +536,11 @@ function waitForTabComplete(tabId, timeoutMs) {
   });
 }
 
-const SCAN_MAX_WAIT_MS = 4 * 60 * 1000; // batas aman total pemindaian
-const SCAN_IDLE_STOP_MS = 12000; // berhenti jika 12 detik tidak ada grup baru
+const SCAN_MAX_WAIT_MS = 150 * 1000; // batas aman total pemindaian (2.5 menit untuk 169 grup)
+const SCAN_IDLE_STOP_MS = 30000;
 
 let scanRequesterTabId = null;
+let latestScannedGroups = [];
 
 async function runCollectorInTab(tabId) {
   const results = await withTimeout(
@@ -494,7 +556,7 @@ async function runCollectorInTab(tabId) {
   return results && results[0] && results[0].result ? results[0].result : null;
 }
 
-async function scrapeFacebookGroups() {
+async function scrapeFacebookGroups(requesterTabId) {
   console.log('[ReachOwl] Memulai pemindaian grup Facebook...');
 
   const uid = await getFacebookUserId();
@@ -506,12 +568,15 @@ async function scrapeFacebookGroups() {
     };
   }
 
+  latestScannedGroups = [];
   let collected = [];
   let tempTabId = null;
   try {
-    // reachowl_scan=1 mengaktifkan fb-scan-main.js agar infinite scroll tetap jalan di tab tidak aktif
+    // Buka tab Facebook /groups/joins/ di LATAR BELAKANG (active: false).
+    // Layar pengguna tetap 100% di ReachOwl, tidak pernah berpindah tab.
+    // fb-scan-main.js menjaga Relay infinite scroll tetap aktif di background.
     const tab = await chrome.tabs.create({
-      url: 'https://www.facebook.com/groups/joins/?nav_source=tab&reachowl_scan=1',
+      url: 'https://www.facebook.com/groups/joins/?nav_source=tab',
       active: false,
     });
     tempTabId = tab.id;
@@ -527,11 +592,23 @@ async function scrapeFacebookGroups() {
         error: 'Facebook meminta login ulang. Silakan login ke Facebook di Chrome lalu coba lagi.',
       };
     }
-    if (result && Array.isArray(result.groups)) collected = result.groups;
+    if (result && Array.isArray(result.groups) && result.groups.length > 0) {
+      collected = result.groups;
+    }
   } catch (err) {
-    console.warn('[ReachOwl] Gagal memindai via tab latar belakang:', err);
+    console.warn('[ReachOwl] Gagal memindai grup via tab Facebook:', err);
   } finally {
-    if (tempTabId) chrome.tabs.remove(tempTabId).catch(() => {});
+    // Tutup tab pemindaian latar belakang setelah selesai
+    if (tempTabId) {
+      chrome.tabs.remove(tempTabId).catch(() => {});
+    }
+  }
+
+  // Jaring pengaman: Jika executeScript IPC terputus di Chromium,
+  // gunakan data streaming yang sudah terkirim via runtime.sendMessage
+  if (collected.length === 0 && latestScannedGroups.length > 0) {
+    console.log('[ReachOwl] Menggunakan data dari streaming progress (' + latestScannedGroups.length + ' grup)');
+    collected = latestScannedGroups;
   }
 
   const groups = collected
@@ -545,6 +622,17 @@ async function scrapeFacebookGroups() {
     }));
 
   console.log('[ReachOwl] Pemindaian selesai. Total grup:', groups.length);
+
+  // Otomatis simpan ke database aplikasi
+  if (groups.length > 0) {
+    try {
+      fetch('http://localhost:3000/api/facebook-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groups }),
+      }).catch(() => {});
+    } catch (e) {}
+  }
 
   if (groups.length === 0) {
     return {
@@ -580,8 +668,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Progres dari tab pemindaian -> diteruskan ke tab aplikasi ReachOwl
+  // Progres streaming dari tab pemindaian -> simpan ke latestScannedGroups & teruskan ke aplikasi
   if (message.action === 'scan_progress') {
+    if (Array.isArray(message.groups) && message.groups.length > latestScannedGroups.length) {
+      latestScannedGroups = message.groups;
+    }
     if (scanRequesterTabId) {
       chrome.tabs
         .sendMessage(scanRequesterTabId, {
@@ -594,9 +685,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.action === 'scan_complete') {
+    if (Array.isArray(message.groups) && message.groups.length > 0) {
+      latestScannedGroups = message.groups;
+    }
+    return false;
+  }
+
   if (message.action === 'scrape_facebook_groups') {
     scanRequesterTabId = sender && sender.tab ? sender.tab.id : null;
-    scrapeFacebookGroups()
+    scrapeFacebookGroups(scanRequesterTabId)
       .then((result) => sendResponse(result))
       .catch((err) =>
         sendResponse({ success: false, groups: [], error: 'Gagal memindai grup: ' + (err && err.message ? err.message : String(err)) })

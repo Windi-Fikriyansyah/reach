@@ -76,3 +76,35 @@ FOR ALL
 USING (true)
 WITH CHECK (true);
 
+-- =======================================================
+-- 8. Tabel facebook_groups (Penyimpanan Grup Hasil Scrape)
+-- =======================================================
+CREATE TABLE IF NOT EXISTS public.facebook_groups (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    image_url TEXT,
+    privacy TEXT DEFAULT 'Joined Group',
+    last_scraped_at TIMESTAMPTZ DEFAULT now(),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_facebook_groups_name ON public.facebook_groups(name);
+CREATE INDEX IF NOT EXISTS idx_facebook_groups_group_id ON public.facebook_groups(group_id);
+
+ALTER TABLE public.facebook_groups ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow read access for facebook_groups"
+ON public.facebook_groups
+FOR SELECT
+USING (true);
+
+CREATE POLICY "Allow write access for facebook_groups"
+ON public.facebook_groups
+FOR ALL
+USING (true)
+WITH CHECK (true);
+
+
