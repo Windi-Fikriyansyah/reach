@@ -319,13 +319,43 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
   const BAD_TEXT = /^(view group|lihat grup|visit group|kunjungi grup|join group|gabung|see all|lihat semua|create new group|buat grup baru)$/i;
   const found = new Map();
 
-  const upsert = (id, name, image) => {
+  const parseCardMeta = (str) => {
+    if (!str || typeof str !== 'string') return { privacy: 'Public', members: null };
+
+    // 1. Deteksi Privasi (Public vs Private)
+    let privacy = 'Public';
+    if (/privat|private|tertutup|closed/i.test(str)) {
+      privacy = 'Private';
+    } else if (/publik|public|terbuka|open/i.test(str)) {
+      privacy = 'Public';
+    }
+
+    // 2. Deteksi Jumlah Member / Anggota
+    let members = null;
+    const memberRegexes = [
+      /(\d[\d.,]*\s*(?:rb|k|jt|m|ribu|juta)?)\s*(?:anggota|members?)/i,
+      /(?:anggota|members?)\s*[:·-]?\s*(\d[\d.,]*\s*(?:rb|k|jt|m|ribu|juta)?)/i,
+    ];
+    for (const rx of memberRegexes) {
+      const match = str.match(rx);
+      if (match && match[1]) {
+        members = match[0].trim();
+        break;
+      }
+    }
+
+    return { privacy, members };
+  };
+
+  const upsert = (id, name, image, privacy, members) => {
     if (!id || IGNORED.has(id.toLowerCase())) return;
-    const prev = found.get(id) || { id, name: '', image: null };
+    const prev = found.get(id) || { id, name: '', image: null, privacy: 'Public', members: null };
     if (name && name.length > 1 && !BAD_TEXT.test(name) && (!prev.name || prev.name.length < name.length)) {
       prev.name = name;
     }
     if (!prev.image && image && image.includes('scontent')) prev.image = image;
+    if (privacy) prev.privacy = privacy;
+    if (members && (!prev.members || prev.members === '-')) prev.members = members;
     found.set(id, prev);
   };
 
@@ -348,9 +378,19 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
       let img = a.querySelector('img, image');
       let src = img ? img.getAttribute('src') || img.getAttribute('xlink:href') || img.getAttribute('href') : null;
 
+      // Ambil teks dari a dan card parent untuk mendeteksi privasi dan jumlah member
+      const card = a.closest('div[role="listitem"], div[role="article"], div[data-visualcompletion], div[role="gridcell"]') || a.parentElement;
+      const combinedText = [
+        a.innerText || a.textContent || '',
+        card ? (card.innerText || card.textContent || '') : '',
+      ].join('\n');
+
+      const meta = parseCardMeta(combinedText);
+      let privacy = meta.privacy;
+      let members = meta.members;
+
       // Jika link tidak memiliki nama atau gambar, cari di card parent
       if (!text || !src) {
-        const card = a.closest('div[role="listitem"], div[role="article"], div[data-visualcompletion], div[role="gridcell"]');
         if (card) {
           if (!text) {
             const h = card.querySelector('h2, h3, span[dir="auto"], strong');
@@ -369,7 +409,7 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
         }
       }
 
-      upsert(id, text, src);
+      upsert(id, text, src, privacy, members);
     });
 
     // B. Data Relay/JSON yang tertanam di halaman
@@ -380,7 +420,7 @@ function pageCollectGroups(maxWaitMs, idleStopMs) {
       while ((mm = re.exec(html)) !== null) {
         let name = mm[2];
         try { name = JSON.parse('"' + name + '"'); } catch (e) {}
-        upsert(mm[1], name, null);
+        upsert(mm[1], name, null, 'Public', null);
       }
     } catch (e) {}
 
@@ -618,7 +658,8 @@ async function scrapeFacebookGroups(requesterTabId) {
       name: g.name,
       url: 'https://www.facebook.com/groups/' + g.id,
       image: g.image || null,
-      privacy: 'Joined Group',
+      privacy: g.privacy || 'Public',
+      members: g.members || null,
     }));
 
   console.log('[ReachOwl] Pemindaian selesai. Total grup:', groups.length);

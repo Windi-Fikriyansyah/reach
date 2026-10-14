@@ -21,6 +21,8 @@ import {
   RotateCcw,
   AlertCircle,
   Search,
+  Globe,
+  Lock,
 } from "lucide-react";
 import { serif } from "@/lib/fonts";
 
@@ -139,7 +141,14 @@ export default function CreateCampaignClient() {
 
   // Scraped Facebook Groups state (Tab 2)
   const [facebookGroups, setFacebookGroups] = useState<
-    Array<{ id: string; name: string; url: string; image?: string | null; privacy?: string }>
+    Array<{
+      id: string;
+      name: string;
+      url: string;
+      image?: string | null;
+      privacy?: string;
+      members?: string | null;
+    }>
   >([]);
   const [isLoadingDatabaseGroups, setIsLoadingDatabaseGroups] = useState(true);
   const [isScrapingGroups, setIsScrapingGroups] = useState(false);
@@ -728,66 +737,157 @@ export default function CreateCampaignClient() {
                         />
                       </div>
 
-                      {/* List Cards Grup */}
-                      <div className="max-h-56 overflow-y-auto space-y-2 pr-1 border border-ink/10 rounded-[4px] p-2 bg-white">
-                        {facebookGroups
-                          .filter(
-                            (g) =>
-                              g.name.toLowerCase().includes(groupSearchQuery.toLowerCase()) ||
-                              g.url.toLowerCase().includes(groupSearchQuery.toLowerCase())
-                          )
-                          .map((grp) => {
-                            const isChosen = selectedGroupId === grp.id || targetUrl === grp.url;
+                      {/* Tabel Daftar Grup Facebook */}
+                      <div className="border border-ink/15 rounded-[4px] bg-white shadow-xs overflow-hidden">
+                        <div className="max-h-72 overflow-y-auto overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead className="sticky top-0 bg-[#FAF9F5] border-b border-ink/10 z-10 text-[11px] font-semibold text-ink/70">
+                              <tr>
+                                <th scope="col" className="w-12 px-3 py-2.5 text-center">
+                                  Pilih
+                                </th>
+                                <th scope="col" className="px-3.5 py-2.5">
+                                  Grup Facebook
+                                </th>
+                                <th scope="col" className="w-28 px-3 py-2.5 text-center">
+                                  Privasi
+                                </th>
+                                <th scope="col" className="w-36 px-3 py-2.5 text-right pr-4">
+                                  Jumlah Member
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-ink/5">
+                              {facebookGroups
+                                .filter(
+                                  (g) =>
+                                    g.name.toLowerCase().includes(groupSearchQuery.toLowerCase()) ||
+                                    g.url.toLowerCase().includes(groupSearchQuery.toLowerCase())
+                                )
+                                .map((grp) => {
+                                  const isChosen = selectedGroupId === grp.id || targetUrl === grp.url;
+                                  const isPrivate =
+                                    grp.privacy && /privat|private|tertutup/i.test(grp.privacy);
 
-                            return (
-                              <div
-                                key={grp.id}
-                                onClick={() => {
-                                  setSelectedGroupId(grp.id);
-                                  setTargetUrl(grp.url);
-                                  setCampaignName(`${grp.name} - Outreach`);
-                                }}
-                                className={`flex items-center justify-between p-2.5 rounded-[4px] border cursor-pointer transition-all ${
-                                  isChosen
-                                    ? "border-accent bg-[#FFF5E5] ring-1 ring-accent shadow-xs"
-                                    : "border-ink/10 bg-white hover:border-ink/30"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  {grp.image ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={grp.image}
-                                      alt=""
-                                      referrerPolicy="no-referrer"
-                                      className="h-6 w-6 rounded-[4px] object-cover shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="h-6 w-6 rounded-full bg-[#1877F2]/10 text-[#1877F2] flex items-center justify-center text-xs font-bold shrink-0">
-                                      f
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-bold text-ink truncate">{grp.name}</p>
-                                    <p className="text-[10px] text-ink/50 font-mono truncate">{grp.url}</p>
-                                  </div>
-                                </div>
+                                  return (
+                                    <tr
+                                      key={grp.id}
+                                      onClick={() => {
+                                        setSelectedGroupId(grp.id);
+                                        setTargetUrl(grp.url);
+                                        setCampaignName(`${grp.name} - Outreach`);
+                                      }}
+                                      className={`cursor-pointer transition-colors ${
+                                        isChosen
+                                          ? "bg-[#FFF5E5] font-medium"
+                                          : "hover:bg-amber-50/40 bg-white"
+                                      }`}
+                                    >
+                                      {/* Kolom 1: Checkmark / Radio */}
+                                      <td className="px-3 py-2.5 text-center align-middle">
+                                        <div
+                                          className={`mx-auto h-4 w-4 rounded-full border flex items-center justify-center transition-colors ${
+                                            isChosen
+                                              ? "border-accent bg-accent text-white"
+                                              : "border-ink/30 bg-white"
+                                          }`}
+                                        >
+                                          {isChosen && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                                        </div>
+                                      </td>
 
-                                <div className="shrink-0 ml-3">
-                                  <div
-                                    className={`h-4 w-4 rounded-full border flex items-center justify-center ${
-                                      isChosen
-                                        ? "border-accent bg-accent text-white"
-                                        : "border-ink/30 bg-white"
-                                    }`}
-                                  >
-                                    {isChosen && <Check className="h-2.5 w-2.5 stroke-[3]" />}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                      {/* Kolom 2: Avatar + Nama Grup + URL */}
+                                      <td className="px-3.5 py-2.5 align-middle">
+                                        <div className="flex items-center gap-2.5 min-w-0 max-w-md">
+                                          {grp.image ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                              src={grp.image}
+                                              alt=""
+                                              referrerPolicy="no-referrer"
+                                              className="h-7 w-7 rounded-[4px] object-cover shrink-0 border border-ink/10"
+                                            />
+                                          ) : (
+                                            <div className="h-7 w-7 rounded-[4px] bg-[#1877F2]/10 text-[#1877F2] flex items-center justify-center text-xs font-bold shrink-0">
+                                              f
+                                            </div>
+                                          )}
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-bold text-ink truncate" title={grp.name}>
+                                              {grp.name}
+                                            </p>
+                                            <a
+                                              href={grp.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="text-[10px] text-ink/50 hover:text-accent font-mono truncate block hover:underline"
+                                              title={grp.url}
+                                            >
+                                              {grp.url}
+                                            </a>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      {/* Kolom 3: Status Privasi (Public vs Private) */}
+                                      <td className="px-3 py-2.5 align-middle text-center whitespace-nowrap">
+                                        {isPrivate ? (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80">
+                                            <Lock className="h-2.5 w-2.5" />
+                                            Privat
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/80">
+                                            <Globe className="h-2.5 w-2.5" />
+                                            Publik
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Kolom 4: Jumlah Member */}
+                                      <td className="px-3 py-2.5 align-middle text-right pr-4 whitespace-nowrap">
+                                        {grp.members ? (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-mono text-ink/80 font-medium bg-ink/5 px-2 py-0.5 rounded border border-ink/10">
+                                            <Users className="h-3 w-3 text-ink/40" />
+                                            {grp.members}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[11px] text-ink/35 font-mono italic">
+                                            -
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* State jika filter pencarian tidak menemukan hasil */}
+                        {facebookGroups.filter(
+                          (g) =>
+                            g.name.toLowerCase().includes(groupSearchQuery.toLowerCase()) ||
+                            g.url.toLowerCase().includes(groupSearchQuery.toLowerCase())
+                        ).length === 0 && (
+                          <div className="p-4 text-center text-xs text-ink/50 bg-[#FAF9F5] border-t border-ink/10">
+                            Tidak ada grup yang cocok dengan &quot;{groupSearchQuery}&quot;
+                          </div>
+                        )}
                       </div>
+
+                      {/* Info grup terpilih */}
+                      {selectedGroupId && (
+                        <div className="flex items-center justify-between p-2.5 rounded-[4px] bg-[#FFF5E5] border border-accent/30 text-xs">
+                          <span className="text-ink font-medium">
+                            Grup Terpilih: <b>{facebookGroups.find((g) => g.id === selectedGroupId)?.name}</b>
+                          </span>
+                          <span className="font-mono text-[11px] text-accent">
+                            {targetUrl}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     /* Database kosong */

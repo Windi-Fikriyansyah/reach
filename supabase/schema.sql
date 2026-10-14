@@ -85,11 +85,16 @@ CREATE TABLE IF NOT EXISTS public.facebook_groups (
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     image_url TEXT,
-    privacy TEXT DEFAULT 'Joined Group',
+    privacy TEXT DEFAULT 'Public',
+    members_count TEXT,
     last_scraped_at TIMESTAMPTZ DEFAULT now(),
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Migrasi penambahan kolom jika tabel sudah dibuat sebelumnya:
+ALTER TABLE public.facebook_groups ADD COLUMN IF NOT EXISTS privacy TEXT DEFAULT 'Public';
+ALTER TABLE public.facebook_groups ADD COLUMN IF NOT EXISTS members_count TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_facebook_groups_name ON public.facebook_groups(name);
 CREATE INDEX IF NOT EXISTS idx_facebook_groups_group_id ON public.facebook_groups(group_id);

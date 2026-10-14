@@ -18,6 +18,7 @@ export type FacebookGroupRecord = {
   url: string;
   image?: string | null;
   privacy?: string;
+  members?: string | null;
 };
 
 // GET: Ambil daftar seluruh grup yang tersimpan di database
@@ -45,7 +46,8 @@ export async function GET() {
       name: row.name,
       url: row.url,
       image: row.image_url || null,
-      privacy: row.privacy || "Joined Group",
+      privacy: row.privacy || "Public",
+      members: row.members_count || null,
     }));
 
     return NextResponse.json({
@@ -89,16 +91,31 @@ export async function POST(request: Request) {
           name: String(g.name).trim(),
           url: g.url ? String(g.url).trim() : `https://www.facebook.com/groups/${groupId}`,
           image_url: g.image || g.image_url || null,
-          privacy: g.privacy || "Joined Group",
+          privacy: g.privacy || "Public",
+          members_count: g.members || g.members_count || null,
           last_scraped_at: now,
           updated_at: now,
         };
       });
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("facebook_groups")
       .upsert(rows, { onConflict: "group_id" })
       .select("group_id, name");
+
+    // Fallback jika database Supabase pengguna belum menambahkan kolom members_count
+    if (error && (error.message?.includes("members_count") || error.code === "PGRST204")) {
+      const fallbackRows = rows.map((row: Record<string, any>) => {
+        const { members_count: _, ...rest } = row;
+        return rest;
+      });
+      const retryResult = await supabase
+        .from("facebook_groups")
+        .upsert(fallbackRows, { onConflict: "group_id" })
+        .select("group_id, name");
+      data = retryResult.data;
+      error = retryResult.error;
+    }
 
     if (error) {
       const isMissing = error.code === "PGRST205" || error.message.includes("schema cache");
